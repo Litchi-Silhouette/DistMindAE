@@ -1,0 +1,1 @@
+configure_file(server.py ${TEST_OUTPUT_PATH}/client/server.py COPYONLY)

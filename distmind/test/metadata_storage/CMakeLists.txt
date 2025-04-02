@@ -1,0 +1,1 @@
+configure_file(client.py ${TEST_OUTPUT_PATH}/metadata_storage/client.py COPYONLY)

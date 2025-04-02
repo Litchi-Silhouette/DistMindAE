@@ -1,0 +1,9 @@
+{
+    "model_list_filename": "model_list.txt",
+    "zipf_s": 0.9,
+    "server_list_file": "server_list.txt",
+    "addr_for_subscriber": "0.0.0.0",
+    "port_for_subscriber": 9004,
+    "rescheduling_period": 1,
+    "inference_workload_s": [8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32]
+}

@@ -1,0 +1,31 @@
+source settings/config.sh
+
+LOCAL_IP=$GLOBAL_LOCAL_IP
+LOAD_BALANCER_IP=$GLOBAL_LOAD_BALANCER_IP
+CONTROLLER_IP=$GLOBAL_CONTROLLER_IP
+
+GPU_LIST="0 1 2 3 4 5 6 7"
+
+CACHE_PORT=$GLOBAL_CAHCE_PORT_FOR_SERVER
+LOAD_BALANCER_PORT=$GLOBAL_LOAD_BALANCER_PORT_FOR_SERVER
+CONTROLLER_PORT=$GLOBAL_CONTROLLER_PORT_FOR_SERVER
+
+BACKEND='nccl'
+WORLD_SIZE=8
+
+echo "GPU list: $GPU_LIST"
+echo "Local IP: $LOCAL_IP"
+echo "Load balancer IP: $LOAD_BALANCER_IP"
+echo "Load balancer port: $LOAD_BALANCER_PORT"
+echo "Controller IP: $CONTROLLER_IP"
+echo "Controller port: $CONTROLLER_PORT"
+echo "Backend: $BACKEND"
+echo "World size: $WORLD_SIZE"
+sleep 1
+
+for GPU in $GPU_LIST
+do
+    echo "Start worker $GPU"
+	nohup python build/bin/server.py $LOCAL_IP $GPU $LOCAL_IP $CACHE_PORT $LOAD_BALANCER_IP $LOAD_BALANCER_PORT $CONTROLLER_IP $CONTROLLER_PORT $BACKEND $WORLD_SIZE >tmp/log_worker_$GPU.txt 2>&1 &
+    sleep 1
+done
