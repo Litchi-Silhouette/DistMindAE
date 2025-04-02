@@ -1,27 +1,71 @@
-# DistMindAE
+# PipePS
 
-## description
+## How to Run
 
-+ ray: ray 相关
-+ distmind: in gpu/mps/dismind 相关
+### Implement the model in the specific format
+Please refer to import_model_reimpl_with_batching at model/resnet/resnet152/resnet152.py::19
 
-## preparing
+### Build the system
+You need to build the system, and add "pipeps/build/lib/python:pipeps/build/lib:pipeps" to PYTHONPATH.
 
-1. aws efa 
-2. cuda-11.7 / PyTorch 1.13.1 / python3.9 / cuDNN: 9.6.0
-3. pip install transformers==4.4.0
-4. pip install -U "ray[all]"
-5. pybind11: （distmind）git submodule update --init xx最新的！
-6. spdlog    sudo apt install libspdlog-dev
-7. libtorch : https://download.pytorch.org/libtorch/cu117/libtorch-shared-with-deps-1.13.1%2Bcu117.zip  pre-c11 ABI  解压到distmind
+* cmake for most file:
+```
+pipeps$ mkdir build
+pipeps$ cd build
+pipeps$ cmake ..
+pipeps$ make
+```
 
-## distmind
+* setup.py for the server
+```
+pipeps$ cd source/server/cpp/torch
+torch$ conda activate pipeswitch
+torch$ python setup.py install
+```
 
-1. 修改config
-2. ./scripts/run_generate.sh
-3. ./scripts/run_storage.sh
-4. ./scripts/run_metadata.sh
-5. ./scripts/run_deploy.sh
-6. ./scripts/run_server.sh
-7. ./scripts/run_controller.sh
-8. run client
+### Generate the binary file for the sotrage
+
+The list of models in stored in `pipeps/source/deployment/model_list.txt`, which will be copied to `pipeps/build/resource/model_list.txt` when doing cmake.
+
+example:
+
+```
+pipeps$ python build/bin/generate_file.py build/resource/model_list.txt build/kv.bin
+```
+
+### Start the storage and load values
+Start the metadata storage and storages.
+Their addresses and ports should be added to pipeps/deployment/storage_list.txt, and the first line after the title is for the metadata storage.
+Then add values to the storage from related files.
+
+```
+pipeps$ build/bin/metadata_storage 7777
+```
+
+```
+pipeps$ build/bin/storage 7778
+```
+
+```
+pipeps$ python build/bin/deploy_file.py build/resource/storage_list.txt build/resource/model_distribution_list.txt kv.bin
+```
+
+### Start the load balancer, caches and servers
+```
+pipeps $ build/bin/load_balancer basic [AddrForClient] [PortForClient] [AddrForServer] [PortForServer] [AddrForCache] [PortForCache] [MetadataStorageAddr] [MetadataStoragePort] 
+```
+
+```
+pipeps $ build/bin/cache [AddrForServer] [PortForServer] [MetadataStorageAddr] [MetadataStoragePort] [LBAddr] [LBPort] [ShmName] [ShmSize] [ShmBlockSize]
+```
+
+```
+pipeps $ python build/bin/server.py [AddrForClient] [PortForClient] [CacheAddr] [CachePort] [LBAddr] [LBPort]
+```
+
+### Start the client
+client_one.py is the simplest client, which sends the next request after finishing the last request. Other more complicated clients are in implementation.
+
+```
+pipeps$ python build/bin/client_one.py build/resource/request_list.txt [LBAddr] [LBPort]
+```

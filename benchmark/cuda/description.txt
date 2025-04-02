@@ -1,0 +1,11 @@
+test1:
+Pin memory on one process and do computation in another process.
+Result: pinning memory does not affect operations in other processes.
+
+test2:
+Pin memory on one thread and do computation in another thread.
+Result: pinning memory does affect operations in other threads.
+
+test3:
+Pin memory on one process and do transmission in another process.
+Result: pinning memory does not take effect for transmission in other processes.

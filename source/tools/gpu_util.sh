@@ -1,0 +1,1 @@
+nvidia-smi --query-gpu=timestamp,index,utilization.gpu --format=csv --loop-ms=100 --filename=$1

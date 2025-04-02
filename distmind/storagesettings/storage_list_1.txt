@@ -1,3 +1,0 @@
-storage_address,        storage_port
-172.31.46.201,            7777
-172.31.46.201,            7778

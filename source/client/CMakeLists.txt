@@ -1,0 +1,5 @@
+configure_file(common.py ${LIBRARY_OUTPUT_PATH}/common.py COPYONLY)
+configure_file(client.py ${EXECUTABLE_OUTPUT_PATH}/client.py COPYONLY)
+configure_file(client_one.py ${EXECUTABLE_OUTPUT_PATH}/client_one.py COPYONLY)
+configure_file(client_concurrent.py ${EXECUTABLE_OUTPUT_PATH}/client_concurrent.py COPYONLY)
+configure_file(client_train_one.py ${EXECUTABLE_OUTPUT_PATH}/client_train_one.py COPYONLY)

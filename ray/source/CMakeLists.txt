@@ -1,5 +1,0 @@
-PROJECT(ray)
-
-ADD_SUBDIRECTORY(client)
-ADD_SUBDIRECTORY(load_balancer)
-ADD_SUBDIRECTORY(controller)
