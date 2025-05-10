@@ -42,7 +42,7 @@ def workerProc(gpu_id, model_name, model_size, is_inf,
 
     logging.debug('enter worker proc')
     # make sure launch task on given gpu id
-    # env['CUDA_VISIBLE_DEVICES'] = gpu_id
+    env['CUDA_VISIBLE_DEVICES'] = gpu_id
     env['CUDA_MPS_PIPE_DIRECTORY'] = base_mps_dir + gpu_id
     env['CUDA_MPS_LOG_DIRECTORY'] = base_log_dir + gpu_id
     os.environ.update(env)
@@ -121,7 +121,7 @@ def trainingProc(gpu_id, env, control_val: mp.Value, local_rank, world_size):
 
     logging.debug('enter training proc')
     # make sure launch task on given gpu id
-    # env['CUDA_VISIBLE_DEVICES'] = gpu_id
+    env['CUDA_VISIBLE_DEVICES'] = gpu_id
     env['CUDA_MPS_PIPE_DIRECTORY'] = base_mps_dir + gpu_id
     env['CUDA_MPS_LOG_DIRECTORY'] = base_log_dir + gpu_id
     os.environ.update(env)

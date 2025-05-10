@@ -3,6 +3,8 @@ import time
 import statistics
 import queue
 import pickle
+import os
+import sys
 
 from common import make_request_sync, make_request_async, prepare_request_binary, AtomicCounter, AtomicCounterRefresh
 from model.index import model_map
@@ -73,6 +75,7 @@ class WorkerInfo:
         self._sync = sync
 
 pending_counter = AtomicCounter()
+total_sent = AtomicCounter()
 def increase_pending_counter():
     global pending_counter
     pending_counter.increase()
@@ -82,8 +85,14 @@ def decrease_pending_counter():
 def get_pending_counter():
     global pending_counter
     return pending_counter.get()
+def get_total_sent():
+    global total_sent
+    return total_sent.get()
+def increase_total_sent():
+    global total_sent
+    total_sent.increase()
 
-def thd_loop_func_print_info(qin, threshold_for_recent):
+def thd_loop_func_print_info(qin, threshold_for_recent, stop_flag):
     start_time = int(time.time())
     total_count = 0
     latency_list = []
@@ -119,13 +128,19 @@ def thd_loop_func_print_info(qin, threshold_for_recent):
             print ('   50th Latency: %f ms' % (sorted_list[int(0.50 * len_list)]))
             print ()
             print ()
-
+            sys.stdout.flush()
             last_count = total_count
+
+        if stop_flag.is_set() and qin.empty() and get_pending_counter() == 0:
+            break  # Exit when stop flag is set and no more items in the queue
+    print ('Total get:', total_count)
+    print ('Print exited')
 
 def thd_loop_func_make_request(end_host, worker_info: WorkerInfo, sending_counter, response_queue):
     time.sleep(worker_info._delay)
     generator = worker_info._request_generator
     make_request = make_request_sync if worker_info._sync else make_request_async
+    req_senders = []
     while generator.hasNext():
         if get_pending_counter() > PENDING_REQUEST_LIMITER:
             time.sleep(0.001)
@@ -137,13 +152,20 @@ def thd_loop_func_make_request(end_host, worker_info: WorkerInfo, sending_counte
             continue
         increase_pending_counter()
         sending_counter.increase()
-        make_request(end_host[0], end_host[1], request, response_queue)
+        increase_total_sent()
+        t = make_request(end_host[0], end_host[1], request, response_queue)
+        req_senders.append(t)
         
-        
+    if len(req_senders) > 0:
+        for t in req_senders:
+            if t is not None:
+                t.join()
+    print ('Worker %d finished' % worker_info._id)
 
 def run(end_host, worker_list, threshold_for_recent):
     response_queue = queue.Queue()
-    t_print = threading.Thread(target=thd_loop_func_print_info, args=(response_queue, threshold_for_recent))
+    stop_flag = threading.Event()
+    t_print = threading.Thread(target=thd_loop_func_print_info, args=(response_queue, threshold_for_recent, stop_flag))
     t_print.start()
 
     sending_counter = AtomicCounterRefresh('Sending Rate')
@@ -153,4 +175,11 @@ def run(end_host, worker_list, threshold_for_recent):
         t_worker.start()
         worker_threads.append(t_worker)
     for t in worker_threads:
-        t.join()
+        t.join()     
+    stop_flag.set()
+
+    t_print.join()
+    print ('All threads finished.')
+    print ('Total sent:', get_total_sent())
+    sys.stdout.flush()
+    os._exit(0)

@@ -70,7 +70,10 @@ def thd_loop_func_accept_server(addr, port, server_map):
         agent = server.tcpAccept()
         server_id_b = agent.tcpRecv(8)
         ip_int, port = struct.unpack('II', server_id_b[0:8])
-        server_id = (ip_int << 32) + port
+        if port > 9999:
+            server_id = len(server_map)
+        else:
+            server_id = (ip_int << 32) + port
         server_model = None
         server_map[server_id] = server_model
         del agent
@@ -100,6 +103,7 @@ def init_broadcast(agent: TcpAgent, model_list, model_distribution, server_map):
 
 def thd_loop_func_accept_subscriber(addr, port, subscribe_list, subscribe_lock, model_list, model_distribution, server_map):
     server = TcpServer(addr, port)
+    print ('Wait for subscriber')   
     while True:
         agent = server.tcpAccept()
         subscribe_lock.acquire()
@@ -134,8 +138,11 @@ def main():
     configuration_file = sys.argv[1]
     configuration = json.load(open(configuration_file))
     print ('Import configuration')
-    # print (configuration)
+    print (configuration)
     print ()
+
+    use_train = (sys.argv[2] == 'True')
+    print ('Use train', use_train)
 
     # Import model list
     model_list = import_model_list(configuration['model_list_filename'])
@@ -197,26 +204,39 @@ def main():
         workload_tag = int(time.time()) % len(inference_workload)
         expected_train_workload = len(server_map) - inference_workload[workload_tag]
 
-        if division.num_train() < expected_train_workload:
-            server_id = division.increase_train()
-            model_name = 'resnet152_train'
-            rescheduling_period = 0.0001
-        elif division.num_train() > expected_train_workload:
-            server_id = division.decrease_train()
-            model_name = np.random.choice(model_list, p=model_distribution)
-            rescheduling_period = 0.0001
-        elif server_queue.empty():
-            time.sleep(0.001)
-            continue
-        else:
-            server_id = server_queue.get()
-            server_queue.put(server_id)
-            if division.is_train(server_id):
+        if use_train:
+            if division.num_train() < expected_train_workload:
+                server_id = division.increase_train()
+                model_name = 'resnet152_train'
+                rescheduling_period = 0.0001
+            elif division.num_train() > expected_train_workload:
+                server_id = division.decrease_train()
+                model_name = np.random.choice(model_list, p=model_distribution)
+                rescheduling_period = 0.0001
+            elif server_queue.empty():
                 time.sleep(0.001)
                 continue
+            else:
+                server_id = server_queue.get()
+                server_queue.put(server_id)
+                if division.is_train(server_id):
+                    time.sleep(0.001)
+                    continue
+                model_name = np.random.choice(model_list, p=model_distribution)
+                rescheduling_period = configuration['rescheduling_period']
+        else:
+            if server_queue.empty():
+                time.sleep(0.001)
+                continue
+            else:
+                server_id = server_queue.get()
+                server_queue.put(server_id)
+
             model_name = np.random.choice(model_list, p=model_distribution)
             rescheduling_period = configuration['rescheduling_period']
+
         print ('Update', server_id, model_name)
+        sys.stdout.flush()
 
         # Update model and broadcast
         subscribe_lock.acquire()

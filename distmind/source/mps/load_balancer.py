@@ -8,6 +8,7 @@ import sys
 import threading as thd
 import time
 from typing import Dict
+from collections import defaultdict
 
 import numpy as np
 
@@ -16,88 +17,129 @@ import source.py_utils.tcp as tcp
 from source.controller import controller_agent
 
 
-def sch_strategy(loads, loads_mtx, localLRU, localLRU_mtx, cache_loc, cache_loc_mtx, model_name, server_map):
-    """ return gpu-id, evict[gpu-id, model-name], launch[gpu-id, model-name]"""
+class Scheduler:
 
-    avaiable_GPUs = server_map.valid_server_list()
-    GPU_ids = list(loads.keys())
-    # print('GPU_ids', GPU_ids)
-    avaiable_GPUs = list([GPU_ids[i] for i in avaiable_GPUs])
-    print("size of available GPUs", len(avaiable_GPUs))
+    def __init__(self, loads, loads_mtx, localLRU, localLRU_mtx, cache_loc, cache_loc_mtx, server_map):
+        self.loads = loads
+        self.loads_mtx = loads_mtx
+        self.localLRU = localLRU
+        self.localLRU_mtx = localLRU_mtx
+        self.cache_loc = cache_loc # {"model-name": {"gpu-id": qlen, "gpu-id-2": qlen, ...}}
+        self.cache_loc_mtx = cache_loc_mtx
+        self.server_map = server_map
 
-    def get_with_cache(model_name, cache_loc, loads):
-        if model_name in cache_loc:
-            gpu_ids = list(cache_loc[model_name])
-            gpu_ids = list(set(gpu_ids).intersection(set(avaiable_GPUs)))
-            if len(gpu_ids) < 1:  # model cache deleted all
-                return None
-            min_load_id = gpu_ids[0]
-            for gid in gpu_ids:
-                with loads_mtx:
-                    if loads[gid] < loads[min_load_id]:
-                        min_load_id = gid
-            return min_load_id
+        self.reqNum = 0
+        self.cacheHit = 0
+    
+    def getInfGPUs(self):
+        avaiable_GPUs = self.server_map.valid_server_list()
+        GPU_ids = list(self.loads.keys())
+        # print('GPU_ids', GPU_ids)
+        avaiable_GPUs = list([GPU_ids[i] for i in avaiable_GPUs])
+        return avaiable_GPUs
+    
+    def getCachedGPU(self, model_name):
+        """ 
+        get the GPU for a cached model with shortest wait queue
+        """
+        avaiable_GPUs = self.getInfGPUs()
+
+        if model_name in self.cache_loc:
+            minQueueGPU = None
+            minQueueLen = None
+            for gid in self.cache_loc[model_name]:
+                qLen = self.cache_loc[model_name][gid]
+                assert qLen >= 0
+                if minQueueLen is None or qLen < minQueueLen:
+                    if gid in avaiable_GPUs:
+                        minQueueLen = qLen
+                        minQueueGPU = gid
+            return (minQueueGPU, minQueueLen)
         else:
             return None
 
-    def update_cacheloc(cache_loc, evict, launch):
+    def updateCache(self, evict, launch):
         if evict:
-            model_name = evict[1]
             gpu_id = evict[0]
-            cache_loc[model_name].remove(gpu_id)
+            model_name = evict[1]
+            del self.cache_loc[model_name][gpu_id]
         if launch:
             model_name = launch[1]
             gpu_id = launch[0]
-            if model_name in cache_loc:
-                cache_loc[model_name].add(gpu_id)
-            else:
-                cache_loc[model_name] = set([gpu_id])
+            if model_name not in self.cache_loc:
+                self.cache_loc[model_name] = defaultdict(int)
 
-    def get_idle_gpus(loads):
+            self.cache_loc[model_name][gpu_id] += 1
+
+    def getIdleGPUs(self):
         idle = []
-        for gpu in loads.keys():
-            with loads_mtx:
-                if loads[gpu] < 1 and (gpu in avaiable_GPUs):
-                    idle.append(gpu)
+        avaiable_GPUs = self.getInfGPUs()
+        for gpu in self.loads.keys():
+            if self.loads[gpu] < 1 and (gpu in avaiable_GPUs):
+                idle.append(gpu)
         return idle
-    
-    with cache_loc_mtx and loads_mtx and localLRU_mtx:
-        gpu_id = get_with_cache(model_name, cache_loc, loads)
 
-        if gpu_id:
-            # cache hit
-            # move cache to recent
-            lcache = localLRU[gpu_id]
-            _ = lcache.get(model_name)
-            return gpu_id, [], []
+    def _tryPlan(self, model_name):
+        """ 
+        1. get cache-id with queue-len (cache-id == (gpu-id, model_name)) and idle GPUs
+        2. get cache-id with min queue length
+        3. if min-queue < 3600 / 100 then put the task to that queue for waiting
+           else if idle GPUs not empty then launch one, # can safely evict, because no task not finished
+           else wait for next round check 
+        """
 
-        idle = get_idle_gpus(loads)
-        while len(idle) == 0:
-            time.sleep(0.0001)
-            idle = get_idle_gpus(loads)
-
-        for gpu in idle:
-            lcache = localLRU[gpu]
-
-            val = lcache.get(model_name)
-            if val != -1:
+        with self.cache_loc_mtx and self.loads_mtx and self.localLRU_mtx:
+            cachedGPU = self.getCachedGPU(model_name)
+            logging.debug("cached GPU %s", cachedGPU)
+            # step 1: if there is cache hit with cache queue len < 3600 / 100
+            if cachedGPU is not None and cachedGPU[1] is not None:
                 # cache hit
-                return gpu, [], []
-            else:
-                # cache miss
-                pass
-        # launch a cache program at min_cache_size_gpu
-        min_cache_size_gpu = random.choice(idle) # random choose one
-        launch = [min_cache_size_gpu, model_name]
-        evict = []
-   
-        evict_model = localLRU[min_cache_size_gpu].put(model_name, model_name)
-        if evict_model:
-            evict = [min_cache_size_gpu, evict_model]
-        update_cacheloc(cache_loc, evict, launch)
+                # move cache to recent
+                gid, qLen = cachedGPU
+                if qLen < 12:
+                    lcache = self.localLRU[gid]
+                    _ = lcache.get(model_name)
+                    # increase cache q job
+                    self.cache_loc[model_name][gid] += 1
 
-    return min_cache_size_gpu, evict, launch
+                    self.cacheHit += 1
+                    logging.debug("hit cache, but need to wait for %s jobs", qLen)
+                    return gid, [], []
 
+            # step 2: if there is idle GPU
+            # comments: no possible to have idle GPU has cache here,
+            #           otherwise function returned in previous step, because qLen == 0
+            idleGPUs = self.getIdleGPUs()
+            if len(idleGPUs) > 0:
+                selectedGPU = random.choice(idleGPUs)
+                launch = [selectedGPU, model_name]
+                # put cache in 
+                evictModel = self.localLRU[selectedGPU].put(model_name, model_name)
+                evict = []
+                if evictModel:
+                    evict = [selectedGPU, evictModel]
+                self.updateCache(evict=evict, launch=launch)
+                return selectedGPU, evict, launch
+            
+            # step 3 if no idle GPU as well then return None
+            return None
+
+    def getPlan(self, model_name, timeout=0.2):
+        """ 
+        try found one else wait for 10ms
+        return gpu-id, evict[gpu-id, model-name], launch[gpu-id, model-name]
+        """
+        startT = time.time()
+        found = None
+        
+        while found is None:
+            self.reqNum += 1
+            found = self._tryPlan(model_name)
+            time.sleep(10/1e3) # 10ms
+            # if time.time() - startT > timeout:
+            #     raise Exception('time out for finding a plan')
+        logging.debug("cache hit rate %f (%d/%d)", self.cacheHit / self.reqNum, self.cacheHit, self.reqNum)
+        return found
 
 
 class LoadBalancer:
@@ -126,7 +168,7 @@ class LoadBalancer:
 
         self.gpu_LRUCache = dict()  # [gpu-id, lru.LRUCache]
         self.gpu_LRUCache_mtx = thd.Lock()
-        self.cache_loc = dict()
+        self.cache_loc = dict() # {}
         self.cache_loc_mtx = thd.Lock()
         
         self.request_id = 0
@@ -160,7 +202,7 @@ class LoadBalancer:
 
         request_consumers = []
         for _ in range(n_proc):
-            p = thd.Thread(target=self._req_handl_proc)
+            p = thd.Thread(target=self._reqHandleThd)
             p.start()
             request_consumers.append(p)
         
@@ -174,10 +216,15 @@ class LoadBalancer:
             server_lock.acquire()
             conn = server.tcpAccept()
             server_lock.release()
-            model_name = conn.tcpRecvWithLength()
-            data = conn.tcpRecvWithLength()
-            request_q.put([model_name, data, conn])
-            logging.debug('client request model %s', model_name)
+            try:
+                model_name = conn.tcpRecvWithLength()
+                data = conn.tcpRecvWithLength()
+                request_q.put([model_name, data, conn])
+                logging.debug('client request model %s', model_name)
+            except:
+                logging.debug('failed receiving data from client')
+                del conn
+
 
     def _towardsGPUServerThd(self, port):
         """ it need to modify the LB status
@@ -196,7 +243,7 @@ class LoadBalancer:
 
             # start threads to monitor response
             for _ in range(4):
-                _p = thd.Thread(target=self._responseReaderProc,
+                _p = thd.Thread(target=self._respHandleThd,
                                     args=(conn, conn_mtx))
                 _p.start()
 
@@ -214,7 +261,7 @@ class LoadBalancer:
             with self.loads_mtx:
                 self.loads[g] = 0
             # assume 10 client process
-            self.gpu_LRUCache[g] = lru.LRUCache(15)
+            self.gpu_LRUCache[g] = lru.LRUCache(12)
             logging.info('registered gpu %s', g)
 
             # if self.fillWithTraining
@@ -228,7 +275,7 @@ class LoadBalancer:
                 # self.trainingStatus[g] = 0
                 # logging.debug('training stats keys %s', self.trainingStatus.keys())
 
-    def _responseReaderProc(self, conn: tcp.TcpAgent, conn_mtx):  # pylint: disable=no-member
+    def _respHandleThd(self, conn: tcp.TcpAgent, conn_mtx):  # pylint: disable=no-member
         """ read response from GPU server in thread
         and put it in res_q
         """
@@ -238,21 +285,29 @@ class LoadBalancer:
                 cache_id = conn.tcpRecvWithLength().decode()  # gpu-id+model-name
                 outputs = conn.tcpRecvWithLength()
             # reduce worker load
-            gpu_id, _ = cache_id.split('$$')
+            gpu_id, model_name = cache_id.split('$$')
             with self.loads_mtx:
                 self.loads[gpu_id] -= 1
+            # reduce cache queue 
+            with self.cache_loc_mtx:
+                self.cache_loc[model_name][gpu_id] -= 1
+            logging.debug('>>>>> resp, gpu %s, model %s', gpu_id, model_name)
 
             # response to client directly
             with self.processed_requests_mtx:
                 cli_conn = self.processed_requests[req_id]
-                cli_conn.tcpSendWithLength(outputs)
+                try:
+                    cli_conn.tcpSendWithLength(outputs)
+                except Exception as e:
+                    logging.info('client lost due to %s', str(e))
             del self.processed_requests[req_id]
             del cli_conn
             logging.debug("reponsed %s", req_id)
 
-    def _req_handl_proc(self, ):
+    def _reqHandleThd(self, ):
         server_map = self.server_map
-
+        sch = Scheduler(self.loads, self.loads_mtx, self.gpu_LRUCache, 
+                        self.gpu_LRUCache_mtx, self.cache_loc, self.cache_loc_mtx, server_map)
         ts_req = []
         while True:
             t1 = time.time()
@@ -263,12 +318,16 @@ class LoadBalancer:
             t1 = time.time()
             # schedule it
             logging.debug("handle one incoming request %s", model_name)
-            gpu_id, evict, launch = sch_strategy(self.loads, self.loads_mtx, self.gpu_LRUCache, self.gpu_LRUCache_mtx, self.cache_loc, self.cache_loc_mtx,
-                                                     model_name, server_map)
+            try:
+                gpu_id, evict, launch = sch.getPlan(model_name, timeout=0.1)
+            except Exception as e:
+                logging.debug("handle schedule request for %s error try later. (err: %s)", model_name, str(e))
+                self.incoming_requests.put(req)
+                continue
             
             if evict:
                 logging.debug(
-                    'need to eviting on gpu %s, with model %s', evict[0], evict[1])
+                    '>>>>> evict, gpu %s, model %s', evict[0], evict[1])
                 with self.workers_mtx:
                     conn = self.workers[evict[0]]
                 
@@ -278,7 +337,7 @@ class LoadBalancer:
                         "{}$${}".format(evict[0], evict[1]).encode())
             if launch:
                 logging.debug(
-                    'need to launch on gpu %s, with model %s', launch[0], launch[1])
+                    '>>>>> launch, gpu %s, model %s', launch[0], launch[1])
                 with self.workers_mtx:
                     conn = self.workers[launch[0]]
                 with self.worker_conn_mtxs[launch[0]]:
@@ -299,7 +358,7 @@ class LoadBalancer:
                 conn.tcpSendWithLength(
                     "{}$${}".format(gpu_id, model_name).encode())
                 conn.tcpSendWithLength(req[1])
-
+            logging.debug('>>>>> inf, gpu %s, model %s', gpu_id, model_name)
             # maintain tcp connection for response
             with self.processed_requests_mtx:
                 self.processed_requests[request_id] = req[2]
@@ -371,9 +430,19 @@ class LoadBalancer:
 def main():
     """"""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--fill-train", action='store_true')
-    parser.add_argument("--debug", action='store_true')
+    parser.add_argument("--controller-address", type=str, required=True, help="Address of the controller")
+    parser.add_argument("--controller-port", type=int, required=True, help="Port of the controller")
+    parser.add_argument("--client-port", type=int, required=True, help="Port for the client")
+    parser.add_argument("--server-port", type=int, required=True, help="Port for the server")
+    parser.add_argument("--fill-train", action='store_true', help="Flag to fill training data")
+    parser.add_argument("--debug", action='store_true', help="Enable debug mode")
+
     args = parser.parse_args()
+
+    controller_address = args.controller_address
+    controller_port = args.controller_port
+    client_port = args.client_port
+    server_port = args.server_port
 
     if args.debug:
         logging.basicConfig(
@@ -382,11 +451,10 @@ def main():
         logging.basicConfig(
             format='%(asctime)s [%(levelname)s]: %(message)s', level=logging.INFO)
 
-    controller_address = "127.0.0.1"
-    controller_port = 9004
     server_map = controller_agent.listenController(controller_address, controller_port, lambda model_name: 'train' not in model_name)
 
-    lb = LoadBalancer(8777, 8778, server_map, args.fill_train)
+    # lb = LoadBalancer(8777, 8778, server_map, args.fill_train)
+    lb = LoadBalancer(client_port, server_port, server_map, args.fill_train)
     lb.run()
 
 

@@ -25,9 +25,13 @@ class TcpAgent:
         return self._conn_fd.recv(msg_length, socket.MSG_WAITALL)
 
     def tcpRecvWithLength(self):
-        msg_len_b = self.tcpRecv(8)
-        msg_len = struct.unpack('Q', msg_len_b)[0]
-        msg_b = self.tcpRecv(msg_len)
+        try:
+            msg_len_b = self.tcpRecv(8)
+            msg_len = struct.unpack('Q', msg_len_b)[0]
+            msg_b = self.tcpRecv(msg_len)
+        except Exception as e:
+            print('tcpRecvWithLength error', e)
+            msg_b = None
         return msg_b
 
 class TcpClient(TcpAgent):

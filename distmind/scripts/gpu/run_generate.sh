@@ -2,7 +2,7 @@ source settings/config.sh
 
 mkdir -p build/resource
 
-NUM_MODELS=$GLOBAL_NUM_MODELS
+NUM_MODELS=1
 DISTRIBUTION_RANK=1
 
 python build/bin/generate_model_list.py settings/model_list_seed.txt $NUM_MODELS $DISTRIBUTION_RANK build/resource/model_list.txt

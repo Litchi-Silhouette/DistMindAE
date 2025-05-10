@@ -35,12 +35,14 @@ def initializeServer():
     backend = sys.argv[9]
     world_size = int(sys.argv[10])
 
+    server_port = gpu_index + 7000
+
     # Initialize distributed training
     initialize_distributed_training(backend, world_size, gpu_index, '127.0.0.1', '29500')
 
     # Initialize C++ extensions
     balance.init_server(
-        address_for_client, gpu_index, 
+        address_for_client, server_port, 
         cache_address, cache_port, 
         lb_address, lb_port
     )
@@ -48,10 +50,10 @@ def initializeServer():
 
     # Register to the controller
     ctrl_client = TcpClient(ctrl_address, ctrl_port)
-    server_id_b = socket.inet_aton(address_for_client) + struct.pack('I', gpu_index)
+    server_id_b = socket.inet_aton(address_for_client) + struct.pack('I', server_port)
     ctrl_client.tcpSend(server_id_b)
     del ctrl_client
-    print ('Register to the controller', socket.inet_aton(address_for_client), gpu_index)
+    print ('Register to the controller', socket.inet_aton(address_for_client), server_port)
 
     cuda_stream = torch.cuda.Stream()
     with torch.cuda.stream(cuda_stream):

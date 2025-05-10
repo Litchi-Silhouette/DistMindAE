@@ -3,7 +3,7 @@ import sys
 
 import torch
 import torch.nn.functional as F
-
+from torchvision.models import resnet152
 from model.common.serialize import extract_hyperparameters
 
 def import_data(batch_size):
@@ -36,7 +36,10 @@ def import_data(batch_size):
     return images, target
 
 def import_model(model_name, train=False):
-    model = torch.hub.load('pytorch/vision:release/0.14', model_name, pretrained=True)
+    if model_name == 'resnet152':
+        model = resnet152(pretrained=True)
+    else:
+        model = torch.hub.load('pytorch/vision:release/0.14', model_name, pretrained=True)
     def set_mod_fullname(mod, fullname):
         mod.fullname = fullname
         for child_name, child in mod.named_children():

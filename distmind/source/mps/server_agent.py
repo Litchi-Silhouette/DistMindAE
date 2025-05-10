@@ -7,6 +7,8 @@ dispatch task to MPS Clients
 
 import nvgpu
 import source.py_utils.tcp as tcp
+import socket
+import struct
 import source.mps.gpu_worker as worker
 import torch.multiprocessing as mp
 import os
@@ -17,7 +19,6 @@ import threading
 import logging
 import time
 
-
 def get_gpus():
     """ get GPU ids
     """
@@ -27,16 +28,16 @@ def get_gpus():
     return ids
 
 
-def _handleResponseProc(response_q, tcp_conn: tcp.TcpAgent, tcp_lock: mp.Lock, exit_signal):
+def _handleResponseProc(response_q, tcp2LB: tcp.TcpAgent, respLock: mp.Lock, exit_signal):
     logging.debug('started _handleResponseProf')
     while exit_signal.value < 1:
         if not response_q.empty():
             ids, outputs = response_q.get()
-            tcp_lock.acquire()
-            tcp_conn.tcpSendWithLength(ids[0].encode())  # req_id
-            tcp_conn.tcpSendWithLength(ids[1].encode())  # cache_id
-            tcp_conn.tcpSendWithLength(outputs)  # actual results
-            tcp_lock.release()
+            with respLock:
+                tcp2LB.tcpSendWithLength(ids[0].encode())  # req_id
+                tcp2LB.tcpSendWithLength(ids[1].encode())  # cache_id
+                tcp2LB.tcpSendWithLength(outputs)  # actual results
+
             logging.debug(
                 'get a response from %s for request id %s', ids[1], ids[0])
 
@@ -44,7 +45,7 @@ def _handleResponseProc(response_q, tcp_conn: tcp.TcpAgent, tcp_lock: mp.Lock, e
     logging.debug('exiting _handleResponseProc')
 
 
-def _launchMPSClient(gpu_id, model_name, model_size, tcp_cli, tcp_lock):
+def _launchMPSClient(gpu_id, model_name, model_size, tcp2LB, respLock):
     """"""
     env = os.environ.copy()
     task_q = mp.Queue()
@@ -64,7 +65,7 @@ def _launchMPSClient(gpu_id, model_name, model_size, tcp_cli, tcp_lock):
 
     exit_s = mp.Value('i', 0)
     res_proc = mp.Process(target=_handleResponseProc, args=(
-        res_q, tcp_cli, tcp_lock, exit_s))
+        res_q, tcp2LB, respLock, exit_s))
     res_proc.start()
     return task_q, proc, res_proc, exit_s
 
@@ -94,7 +95,7 @@ class WorkerAgent:
         self.res_proc_signal = {}
         self.procs = {}
         self.tcp_cli = self._tcpToLB(lb_ip, lb_port)
-        self.tcp_lock = mp.Lock()
+        self.respLock = mp.Lock()
         self.model_sizes = self._load_model_sizes(model_size_file)
         self.training_proc = {}
 
@@ -125,7 +126,7 @@ class WorkerAgent:
                     logging.debug("cache %s existed", cache_id)
                 else:
                     task_q, proc, res_proc, exit_s = _launchMPSClient(gpu_id, model_name, self.model_sizes[model_name],
-                                                                    self.tcp_cli, self.tcp_lock)
+                                                                    self.tcp_cli, self.respLock)
                     self.task_qs[cache_id] = task_q
                     self.res_proc_signal[cache_id] = exit_s
                     self.procs[cache_id] = [proc, res_proc]
@@ -138,7 +139,7 @@ class WorkerAgent:
                 # dispatch task; assume the MPS client already there
                 if cache_id not in self.task_qs:
                     task_q, proc, res_proc, exit_s = _launchMPSClient(gpu_id, model_name, self.model_sizes[model_name],
-                                                                    self.tcp_cli, self.tcp_lock)
+                                                                    self.tcp_cli, self.respLock)
                     self.task_qs[cache_id] = task_q
                     self.res_proc_signal[cache_id] = exit_s
                     self.procs[cache_id] = [proc, res_proc]
@@ -202,6 +203,10 @@ def main():
     parser.add_argument("--lb-ip", required=True)
     parser.add_argument("--lb-port", required=True, type=int)
     parser.add_argument('--size-list', required=True)
+    parser.add_argument('--gpu-num', required=True, type=int)
+    parser.add_argument('--ctrl-ip', required=True)
+    parser.add_argument('--ctrl-port', required=True, type=int)
+    parser.add_argument('--local-ip', required=True)
     parser.add_argument('--debug', action="store_true")
 
     args = parser.parse_args()
@@ -212,7 +217,24 @@ def main():
         logging.basicConfig(
             format='%(asctime)s [%(levelname)s]: %(message)s', level=logging.INFO)
     agent = WorkerAgent(args.size_list, args.lb_ip, args.lb_port)
-    agent.run()
+
+    # Register to the controller
+    ctrl_address = args.ctrl_ip
+    ctrl_port = args.ctrl_port
+    address_for_client = args.local_ip
+    for gpu_index in range(args.gpu_num):    
+        ctrl_client = tcp.TcpClient(ctrl_address, ctrl_port)
+        server_id_b = socket.inet_aton(address_for_client) + struct.pack('i', gpu_index + 10000)
+        ctrl_client.tcpSend(server_id_b)
+        del ctrl_client
+        print ('Register to the controller', socket.inet_aton(address_for_client), gpu_index + 10000)
+        time.sleep(1)
+    
+    try:
+        agent.run()
+    except e:
+        print('error', e)
+        logging.debug('error', e)
 
 
 if __name__ == "__main__":

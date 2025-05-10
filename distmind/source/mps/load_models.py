@@ -39,7 +39,7 @@ def main():
         print('require a model list to load, and output file for saving model sizes')
         return
 
-    subprocess.run('rm /dev/shm/*', shell=True)
+    subprocess.run('rm -rf /dev/shm/* 2>/dev/null', shell=True)
 
     model_names = []
     with open(sys.argv[1]) as ifile:
