@@ -1,27 +1,156 @@
-# DistMindAE
+# DistMind Artifact Evaluation Guide
 
-## description
+This is the artifact of the paper "DistMind: Efficient Resource Disaggregation for Deep Learning Workloads". We are going to guide you through the process of reproducing the main results in the paper.
 
-+ ray: ray 相关
-+ distmind: in gpu/mps/dismind 相关
+Here is a high level overview of the whole process:
 
-## preparing
+1. Environment Setup: Create GPU and memory instances on AWS (or machines with rdma)
+2. Kick-the-tires: Run an example to verify DistMind are working.
+3. Full evaluation: Reproduce all the main results in the paper.
 
-1. aws efa 
-2. cuda-11.7 / PyTorch 1.13.1 / python3.9 / cuDNN: 9.6.0
-3. pip install transformers==4.4.0
-4. pip install -U "ray[all]"
-5. pybind11: （distmind）git submodule update --init xx最新的！
-6. spdlog    sudo apt install libspdlog-dev
-7. libtorch : https://download.pytorch.org/libtorch/cu117/libtorch-shared-with-deps-1.13.1%2Bcu117.zip  pre-c11 ABI  解压到distmind
+Note that all logs for tests will be stored under ./tmp and figures will be stored under ./AE/{testname}.
 
-## distmind
+## Environment Setup
 
-1. 修改config
-2. ./scripts/run_generate.sh
-3. ./scripts/run_storage.sh
-4. ./scripts/run_metadata.sh
-5. ./scripts/run_deploy.sh
-6. ./scripts/run_server.sh
-7. ./scripts/run_controller.sh
-8. run client
+Originally, the experiments were run in AWS EC2 instances p3dn.24xlarge and c5n.18xlarge. Pitifully, Amazon has changed their rules, making these two instances unable to support RDMA. Based on present rules, we recommend g6.12xlarge for GPU server and c6in.32xlarge for memory servers. We also provide verbs version if you run tests on machines using verbs API rdma.
+
+### Prepare EFA
+
+If you use AWS instances, follow the instructions on https://docs.aws.amazon.com/zh_cn/AWSEC2/latest/UserGuide/efa.html to setup efa and nccl. **You should run code under branch efa.**
+
+### Prepare Verbs
+
+If you use verbs API rdma, follow the instructions on https://github.com/ofiwg/libfabric to install libfabric to /opt/libfabric. You should install nccl if your machine supported. **You should run code under branch main.**
+
+### Prepare env
+
+1. make sure you have finished one of the previous section.
+2. cuda-12.4 / cuDNN: 9.5.1 
+3. anaconda
+4. pybind11: `git submodule update --init`
+5. spdlog: `sudo apt install libspdlog-dev`
+6. libtorch: 
+`wget https://download.pytorch.org/libtorch/cu124/libtorch-shared-with-deps-2.5.1%2Bcu124.zip` and unzip to {proj_path}/libtorch
+
+prepare python env
+
+1. `conda create -n distmind python=3.10 matplotlib`, and add activation to ~/.bashrc
+2. `pip install transformers==4.49`
+3. `pip install ray[serve]==1.13`
+4. `pip install nvgpu`
+5. `pip install posix_ipc`
+6. `pip install parallel-ssh`
+7. `pip install pydantic==1.10.8`
+8. `conda install pytorch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 pytorch-cuda=12.4 -c pytorch -c nvidia`
+
+## Build
+
+In project dictionary run the following command:
+
+```sh
+mkdir build
+cd build
+cmake ..
+make -j 8
+
+cd ../source/server/cpp_extension/torch
+python setup.py install
+```
+
+When building end successfully, and following to ~/.bashrc
+
+```sh
+# python path
+proj_path="~/DistMindAE"
+export PYTHONPATH="$proj_path/build/lib/python:$proj_path/build/lib:$proj_path:$PYTHONPATH"
+```
+
+## Kick-the-tires
+
+Follow the steps below to run an example test.
+
+1. prepare one gpu server, we will run example test on single machine.
+2. check ips in settings/config.sh are all 127.0.0.1, MODE=local, modify GPU_LIST and WORLD_SIZE based on your machine's resources, settings/storage_list.txt is like
+
+```
+storage_address,        storage_port
+127.0.0.1,            7777
+127.0.0.1,            7778
+```
+
+3. In project path, run 
+
+```
+mkdir -p tmp
+mkdir -p tmp/test1
+mkdir -p tmp/test1/distmind_remote
+./AE/1_Meeting_latency_SLOs/run_distmind_test1.sh
+```
+
+4. When script end, check tmp/test1/distmind_remote/log_client.txt. If in the end it said "All threads finished.", you strat distmind successfully.
+
+## Full Evaluation
+
+Before running any test, you should modify files in settings correctly. You should prepare 4 memory servers and 4 GPU servers ideally, but you can cut the size if your resources are limited. Choose one memory server as local and modify the settings as instructed below:
+
+1. settings/serverhost_list.txt: add your server ip in to each line with format "[ip] slots=[gpu_num]"
+2. settings/storage_list.txt: repalce the first line's ip with local ip, keep port as 7777. Then add your memory server with format "[ip],    7778"
+3. settings/controller.json & settings/mps_controller.json & settings/ray_controller.json: fill inference_workload_s with server_number * gpu_per_server
+4. settings/config.sh: repalce all ips with local ip, set MODE=remote
+5. in each gpu server: in settings/config.sh repalce LOCAL_IP with the server's ip, modify GPU_LIST and WORLD_SIZE based on your machine's resources
+6. you should enable password free ssh connection for all servers, and repalce the username in settings/username.txt with your config
+
+### 1_Meeting_latency_SLOs(fig6)
+
+In local's terminal, run `./AE/1_Meeting_latency_SLOs/run_test1.sh`. When the script finished(without error), run `python ./AE/1_Meeting_latency_SLOs/drawplot.py`. The plot will be saved to 
+./AE/1_Meeting_latency_SLOs/fig6.png
+
+### 2_End-to-end_performance(fig7,8)
+
+In local's terminal, run `./AE/2_End-to-end_performance/run_test2.sh`. When the script finished(without error), run `python ./AE/2_End-to-end_performance/drawplot.py`. The plot will be saved to 
+./AE/2_End-to-end_performance/fig7.png & ./AE/2_End-to-end_performance/fig8.png
+
+### 3_Sharing_inference_and_training(fig9)
+
+In this test, you should modify the inference_workload_s list in three controller.json files. Assume you have 4 GPU server with 4 GPUs per server, then you should set it to [
+    4, 4, 4, 4, 4, 4, 4, 4, 
+    8, 8, 8, 8, 8, 8, 8, 8,
+    16, 16, 16, 16, 16, 16, 16, 16
+    ]
+Change to fit your resources. Note that the changing preiod shall be a multiple of the number of GPUs per machine.
+
+1. In local's terminal, run `./AE/3_Sharing_inference_and_training/run_test3.sh`. 
+2. change three controller.json files' inference_workload_s to [0, 0] run `./AE/3_Sharing_inference_and_training/run_test3_bound.sh`
+3. change settings/controller.josn file's inference_workload_s to [max_gpu_count] run `./AE/3_Sharing_inference_and_training/run_test3_gpu_bound.sh`
+4. When all the script finished(without error), run `python ./AE/3_Sharing_inference_and_training/gather_result.py` to get throughput result and run `python ./AE/3_Sharing_inference_and_training/drawplot.py` to plot. The plot will be saved to ./AE/2_End-to-end_performance/{system_type}_utilization.png
+
+### 4_Reducing_memory_usage(fig10)
+
+This is only a stimulation test.
+In local's terminal, run `python ./AE/4_Reducing_memory_usage/drawplot.py`. The plot will be saved to ./AE/4_Reducing_memory_usage/fig10.png
+
+### 5_Three-stage_pipeline(fig11.a)
+
+Before running this test, you should first lift the `MEMORY_MANAGER_AMPLIFIER` in `source/utils/common/global.h` and rebuild the project. We recomend at least 2 for per layer amd small group size tests. 
+
+In local's terminal, run `./AE/5_Three-stage_pipeline/run_test5.sh`. When the script finished(without error), run `python ./AE/5_Three-stage_pipeline/drawplot.py`. The plot will be saved to 
+./AE/5_Three-stage_pipeline/fig11_a.png
+
+### 6_Zero-copy_deserialization(fig11.b)
+
+In local's terminal, run `./AE/6_Zero-copy_deserialization/run_test6.sh`. When the script finished(without error), run `python ./AE/6_Zero-copy_deserialization/drawplot.py`. The plot will be saved to  ./AE/6_Zero-copy_deserialization/fig11_b.png 
+
+### 7_Load_balancing(fig12.a)
+
+In local's terminal, run `./AE/7_Load_balancing/run_test7.sh`. When the script finished(without error), run `python ./AE/7_Load_balancing/drawplot.py`. The plot will be saved to 
+./AE/7_Load_balancing/fig12_a.png
+
+### 8_Caching(fig12.b)
+
+In local's terminal, run `./AE/8_Caching/run_test8.sh`. When the script finished(without error), run `python ./AE/8_Caching/drawplot.py`. The plot will be saved to 
+./AE/8_Caching/fig12_b.png
+
+### 9_DNN-Aware_Sharding(fig13)
+
+In local's terminal, run `./AE/9_DNN-Aware_Sharding/run_test9.sh`. When the script finished(without error), run `python ./AE/9_DNN-Aware_Sharding/drawplot.py`. The plot will be saved to 
+./AE/9_DNN-Aware_Sharding/fig13.png

@@ -1,1 +1,0 @@
-configure_file(train.py ${EXECUTABLE_OUTPUT_PATH}/train.py COPYONLY)

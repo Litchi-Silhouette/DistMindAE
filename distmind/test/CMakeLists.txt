@@ -1,5 +1,0 @@
-ADD_SUBDIRECTORY(metadata_storage)
-ADD_SUBDIRECTORY(deployment)
-ADD_SUBDIRECTORY(client)
-ADD_SUBDIRECTORY(load_balancer)
-ADD_SUBDIRECTORY(cache)

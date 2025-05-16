@@ -1,1 +1,0 @@
-configure_file(tcp.py ${LIBRARY_OUTPUT_PATH}/python/py_utils/tcp.py COPYONLY)
