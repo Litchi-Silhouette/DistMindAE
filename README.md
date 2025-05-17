@@ -103,18 +103,18 @@ Before running any test, you should modify files in settings correctly. You shou
 
 ### 1_Meeting_latency_SLOs(fig6)
 
-In local's terminal, run `./AE/1_Meeting_latency_SLOs/run_test1.sh`. When the script finished(without error), run `python ./AE/1_Meeting_latency_SLOs/drawplot.py`. The plot will be saved to 
+In local's terminal, run `./AE/1_Meeting_latency_SLOs/run_test1.sh`. When the script finished(without error), run `python ./AE/1_Meeting_latency_SLOs/drawplot.py`. The plot will be saved to  
 ./AE/1_Meeting_latency_SLOs/fig6.png
 
 ### 2_End-to-end_performance(fig7,8)
 
-In local's terminal, run `./AE/2_End-to-end_performance/run_test2.sh`. When the script finished(without error), run `python ./AE/2_End-to-end_performance/drawplot.py`. The plot will be saved to 
+In local's terminal, run `./AE/2_End-to-end_performance/run_test2.sh`. When the script finished(without error), run `python ./AE/2_End-to-end_performance/drawplot.py`. The plot will be saved to  
 ./AE/2_End-to-end_performance/fig7.png & ./AE/2_End-to-end_performance/fig8.png
 
 ### 3_Sharing_inference_and_training(fig9)
 
 In this test, you should modify the inference_workload_s list in three controller.json files. Assume you have 4 GPU server with 4 GPUs per server, then you should set it to [
-    4, 4, 4, 4, 4, 4, 4, 4, 
+    4, 4, 4, 4, 4, 4, 4, 4,  
     8, 8, 8, 8, 8, 8, 8, 8,
     16, 16, 16, 16, 16, 16, 16, 16
     ]
@@ -123,35 +123,38 @@ Change to fit your resources. Note that the changing period shall be a multiple 
 1. In local's terminal, run `./AE/3_Sharing_inference_and_training/run_test3.sh`. 
 2. change three controller.json files' inference_workload_s to [0, 0] run `./AE/3_Sharing_inference_and_training/run_test3_bound.sh`
 3. change settings/controller.josn file's inference_workload_s to [max_gpu_count] run `./AE/3_Sharing_inference_and_training/run_test3_gpu_bound.sh`
-4. When all the script finished(without error), run `python ./AE/3_Sharing_inference_and_training/gather_result.py` to get throughput result and run `python ./AE/3_Sharing_inference_and_training/drawplot.py` to plot. The plot will be saved to ./AE/2_End-to-end_performance/{system_type}_utilization.png
+4. When all the script finished(without error), run `python ./AE/3_Sharing_inference_and_training/gather_result.py` to get throughput result and run `python ./AE/3_Sharing_inference_and_training/drawplot.py` to plot. The plot will be saved to  
+./AE/3_Sharing_inference_and_training/{system_type}_utilization.png
 
 ### 4_Reducing_memory_usage(fig10)
 
 This is only a stimulation test.
-In local's terminal, run `python ./AE/4_Reducing_memory_usage/drawplot.py`. The plot will be saved to ./AE/4_Reducing_memory_usage/fig10.png
+In local's terminal, run `python ./AE/4_Reducing_memory_usage/drawplot.py`. The plot will be saved to  
+./AE/4_Reducing_memory_usage/fig10.png
 
 ### 5_Three-stage_pipeline(fig11.a)
 
 Before running this test, you should first lift the `MEMORY_MANAGER_AMPLIFIER` in `source/utils/common/global.h` and rebuild the project. We recommend at least 2 for per layer and small group size tests. 
 
-In local's terminal, run `./AE/5_Three-stage_pipeline/run_test5.sh`. When the script finished(without error), run `python ./AE/5_Three-stage_pipeline/drawplot.py`. The plot will be saved to 
+In local's terminal, run `./AE/5_Three-stage_pipeline/run_test5.sh`. When the script finished(without error), run `python ./AE/5_Three-stage_pipeline/drawplot.py`. The plot will be saved to  
 ./AE/5_Three-stage_pipeline/fig11_a.png
 
 ### 6_Zero-copy_deserialization(fig11.b)
 
-In local's terminal, run `./AE/6_Zero-copy_deserialization/run_test6.sh`. When the script finished(without error), run `python ./AE/6_Zero-copy_deserialization/drawplot.py`. The plot will be saved to  ./AE/6_Zero-copy_deserialization/fig11_b.png 
+In local's terminal, run `./AE/6_Zero-copy_deserialization/run_test6.sh`. When the script finished(without error), run `python ./AE/6_Zero-copy_deserialization/drawplot.py`. The plot will be saved to  
+./AE/6_Zero-copy_deserialization/fig11_b.png  
 
 ### 7_Load_balancing(fig12.a)
 
-In local's terminal, run `./AE/7_Load_balancing/run_test7.sh`. When the script finished(without error), run `python ./AE/7_Load_balancing/drawplot.py`. The plot will be saved to 
+In local's terminal, run `./AE/7_Load_balancing/run_test7.sh`. When the script finished(without error), run `python ./AE/7_Load_balancing/drawplot.py`. The plot will be saved to  
 ./AE/7_Load_balancing/fig12_a.png
 
 ### 8_Caching(fig12.b)
 
-In local's terminal, run `./AE/8_Caching/run_test8.sh`. When the script finished(without error), run `python ./AE/8_Caching/drawplot.py`. The plot will be saved to 
+In local's terminal, run `./AE/8_Caching/run_test8.sh`. When the script finished(without error), run `python ./AE/8_Caching/drawplot.py`. The plot will be saved to  
 ./AE/8_Caching/fig12_b.png
 
 ### 9_DNN-Aware_Sharding(fig13)
 
-In local's terminal, run `./AE/9_DNN-Aware_Sharding/run_test9.sh`. When the script finished(without error), run `python ./AE/9_DNN-Aware_Sharding/drawplot.py`. The plot will be saved to 
+In local's terminal, run `./AE/9_DNN-Aware_Sharding/run_test9.sh`. When the script finished(without error), run `python ./AE/9_DNN-Aware_Sharding/drawplot.py`. The plot will be saved to  
 ./AE/9_DNN-Aware_Sharding/fig13.png
