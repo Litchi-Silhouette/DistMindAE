@@ -12,27 +12,26 @@ Note that all logs for tests will be stored under ./tmp and figures will be stor
 
 ## Environment Setup
 
-Originally, the experiments were run in AWS EC2 instances p3dn.24xlarge and c5n.18xlarge. Pitifully, Amazon has changed their rules, making these two instances unable to support RDMA. Based on present rules, we recommend g6.12xlarge for GPU server and c6in.32xlarge for memory servers. We also provide verbs version if you run tests on machines using verbs API rdma.
+Originally, the experiments were run in AWS EC2 instances p3dn.24xlarge and c5n.18xlarge. Pitifully, Amazon has changed their rules, making these two instances no longer support RDMA. Based on present rules, we recommend g6.12xlarge for GPU servers and c6in.32xlarge for memory servers. We also provide verbs version if you run tests on machines using verbs API rdma.
 
 ### Prepare EFA
 
-If you use AWS instances, follow the instructions on https://docs.aws.amazon.com/zh_cn/AWSEC2/latest/UserGuide/efa.html to setup efa and nccl. **You should run code under branch efa.**
+If you use AWS instances, follow the instructions on [AWS User Guide](https://docs.aws.amazon.com/zh_cn/AWSEC2/latest/UserGuide/efa.html) to setup efa and nccl. **You should run code under branch efa.**
 
 ### Prepare Verbs
 
-If you use verbs API rdma, follow the instructions on https://github.com/ofiwg/libfabric to install libfabric to /opt/libfabric. You should install nccl if your machine supported. **You should run code under branch main.**
+If you use verbs API rdma, follow the instructions on [libfabric install guide](https://github.com/ofiwg/libfabric) to install libfabric to /opt/libfabric. You should install nccl if your machine supported. **You should run code under branch main.**
 
 ### Prepare env
 
-1. make sure you have finished one of the previous section.
-2. cuda-12.4 / cuDNN: 9.5.1 
+1. make sure you have finished one of the previous section  
+2. cuda-12.4 / cuDNN: 9.5.1  
 3. anaconda
 4. pybind11: `git submodule update --init`
 5. spdlog: `sudo apt install libspdlog-dev`
-6. libtorch: 
-`wget https://download.pytorch.org/libtorch/cu124/libtorch-shared-with-deps-2.5.1%2Bcu124.zip` and unzip to {proj_path}/libtorch
+6. libtorch: download from [Website](https://download.pytorch.org/libtorch/cu124/libtorch-shared-with-deps-2.5.1%2Bcu124.zip) and unzip to {proj_path}/libtorch
 
-prepare python env
+### Prepare python env
 
 1. `conda create -n distmind python=3.10 matplotlib`, and add activation to ~/.bashrc
 2. `pip install transformers==4.49`
@@ -65,40 +64,42 @@ proj_path="~/DistMindAE"
 export PYTHONPATH="$proj_path/build/lib/python:$proj_path/build/lib:$proj_path:$PYTHONPATH"
 ```
 
+If you are using AWS instances for testing, save this as an AMI to create multiple machines.
+
 ## Kick-the-tires
 
 Follow the steps below to run an example test.
 
-1. prepare one gpu server, we will run example test on single machine.
-2. check ips in settings/config.sh are all 127.0.0.1, MODE=local, modify GPU_LIST and WORLD_SIZE based on your machine's resources, settings/storage_list.txt is like
+1. prepare one gpu server, we will run an example test on single machine.
+2. check ips in settings/config.sh are all 127.0.0.1, MODE=local, modify GPU_LIST and WORLD_SIZE based on your machine's resources. Make sure settings/storage_list.txt is something like
 
-```
+```sh
 storage_address,        storage_port
 127.0.0.1,            7777
 127.0.0.1,            7778
 ```
 
-3. In project path, run 
+3. In project path, run the following cmd.
 
-```
+```sh
 mkdir -p tmp
 mkdir -p tmp/test1
 mkdir -p tmp/test1/distmind_remote
 ./AE/1_Meeting_latency_SLOs/run_distmind_test1.sh
 ```
 
-4. When script end, check tmp/test1/distmind_remote/log_client.txt. If in the end it said "All threads finished.", you strat distmind successfully.
+4. When the script end, check tmp/test1/distmind_remote/log_client.txt. If in the end it says "All threads finished.", you have started distmind successfully.
 
 ## Full Evaluation
 
-Before running any test, you should modify files in settings correctly. You should prepare 4 memory servers and 4 GPU servers ideally, but you can cut the size if your resources are limited. Choose one memory server as local and modify the settings as instructed below:
+Before running any test, you should modify files in settings correctly. You should prepare 4 memory servers and 4 GPU servers ideally, but you can reduce the size if your resources are limited. Choose one memory server as local and modify the settings as instructed below:
 
 1. settings/serverhost_list.txt: add your server ip in to each line with format "[ip] slots=[gpu_num]"
-2. settings/storage_list.txt: repalce the first line's ip with local ip, keep port as 7777. Then add your memory server with format "[ip],    7778"
+2. settings/storage_list.txt: replace the first line's ip with local ip, keep port as 7777. Then add your memory server with format "[ip],    7778"
 3. settings/controller.json & settings/mps_controller.json & settings/ray_controller.json: fill inference_workload_s with server_number * gpu_per_server
-4. settings/config.sh: repalce all ips with local ip, set MODE=remote
-5. in each gpu server: in settings/config.sh repalce LOCAL_IP with the server's ip, modify GPU_LIST and WORLD_SIZE based on your machine's resources
-6. you should enable password free ssh connection for all servers, and repalce the username in settings/username.txt with your config
+4. settings/config.sh: replace all ips with local ip, set MODE=remote
+5. in each gpu server: in settings/config.sh replace LOCAL_IP with the server's ip, modify GPU_LIST and WORLD_SIZE based on your machine's resources
+6. you should enable password free ssh connection for all servers, and replace the username in settings/username.txt with your config
 
 ### 1_Meeting_latency_SLOs(fig6)
 
@@ -117,7 +118,7 @@ In this test, you should modify the inference_workload_s list in three controlle
     8, 8, 8, 8, 8, 8, 8, 8,
     16, 16, 16, 16, 16, 16, 16, 16
     ]
-Change to fit your resources. Note that the changing preiod shall be a multiple of the number of GPUs per machine.
+Change to fit your resources. Note that the changing period shall be a multiple of the number of GPUs per machine.
 
 1. In local's terminal, run `./AE/3_Sharing_inference_and_training/run_test3.sh`. 
 2. change three controller.json files' inference_workload_s to [0, 0] run `./AE/3_Sharing_inference_and_training/run_test3_bound.sh`
@@ -131,7 +132,7 @@ In local's terminal, run `python ./AE/4_Reducing_memory_usage/drawplot.py`. The 
 
 ### 5_Three-stage_pipeline(fig11.a)
 
-Before running this test, you should first lift the `MEMORY_MANAGER_AMPLIFIER` in `source/utils/common/global.h` and rebuild the project. We recomend at least 2 for per layer amd small group size tests. 
+Before running this test, you should first lift the `MEMORY_MANAGER_AMPLIFIER` in `source/utils/common/global.h` and rebuild the project. We recommend at least 2 for per layer and small group size tests. 
 
 In local's terminal, run `./AE/5_Three-stage_pipeline/run_test5.sh`. When the script finished(without error), run `python ./AE/5_Three-stage_pipeline/drawplot.py`. The plot will be saved to 
 ./AE/5_Three-stage_pipeline/fig11_a.png
